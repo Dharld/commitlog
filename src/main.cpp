@@ -1,7 +1,11 @@
+#include <cstdlib>
 #include <iostream>
 #include <filesystem>
 #include <fstream>
+#include <sstream>
 #include <string>
+#include "lib/command.h"
+#include "lib/zstr.hpp"
 
 int main(int argc, char *argv[])
 {
@@ -9,11 +13,6 @@ int main(int argc, char *argv[])
     std::cout << std::unitbuf;
     std::cerr << std::unitbuf;
 
-    // You can use print statements as follows for debugging, they'll be visible when running tests.
-    std::cerr << "Logs from your program will appear here!\n";
-
-    // Uncomment this block to pass the first stage
-    //
     if (argc < 2) {
         std::cerr << "No command provided.\n";
         return EXIT_FAILURE;
@@ -39,9 +38,42 @@ int main(int argc, char *argv[])
             std::cout << "Initialized git directory\n";
         } catch (const std::filesystem::filesystem_error& e) {
             std::cerr << e.what() << '\n';
-            return EXIT_FAILURE;
+            return EXIT_FAILURE; 
         }
-    } else {
+    } 
+    else if (command == "cat-file") {
+       CatFileCommand cmd{};
+
+       for (int i = 0; i < argc; ++i) {
+            std::string arg = argv[i];
+
+            if (arg == "-p") cmd.print_payload = true;
+            else if (arg == "-t") cmd.print_type = true;
+            else cmd.object_id = arg;
+       }
+
+       if (cmd.print_payload) {
+            std::string dir_name = cmd.object_id.substr(0, 2);
+            std::string sha1 = cmd.object_id.substr(2);
+            
+            // Decompress the file
+            std::string path = ".git/objects/" + dir_name + "/" + sha1;
+
+            zstr::ifstream input(path);
+            if(!input.is_open()) {
+                std::cerr << "Impossible to decompress the file" << std::endl;
+                return EXIT_FAILURE;
+            }
+
+            std::ostringstream ss;
+            ss << input.rdbuf();
+            std::string input_content = ss.str();
+
+            std::string payload = input_content.substr(input_content.find("\0") + 1);
+            std::cout << payload << std::flush;
+       }
+    }
+    else {
         std::cerr << "Unknown command " << command << '\n';
         return EXIT_FAILURE;
     }
