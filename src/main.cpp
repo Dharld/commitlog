@@ -4,12 +4,12 @@
 #include <iostream>
 #include <filesystem>
 #include <fstream>
-#include <iterator>
 #include <ostream>
 #include <sstream>
 #include <string>
 #include <vector>
 #include <openssl/sha.h>
+#include <zlib.h>
 #include "lib/command.h"
 #include "lib/zstr.hpp"
 
@@ -23,6 +23,18 @@ std::string get_sha1_str(unsigned char* digest) {
             << static_cast<int>(digest[i]);
     }
     return oss.str();
+}
+
+static std::string zlib_compress(const unsigned char* data, size_t len, int level = Z_DEFAULT_COMPRESSION) {
+    uLongf cap = compressBound(len);        // upper bound for compressed size
+    std::string out;
+    out.resize(cap);
+
+    int ret = compress2(reinterpret_cast<Bytef*>(&out[0]), &cap,
+                        reinterpret_cast<const Bytef*>(data), len, level);
+    if (ret != Z_OK) throw std::runtime_error("zlib compress2 failed");
+    out.resize(cap);
+    return out;
 }
 
 std::vector<unsigned char> read_file_bytes(fs::path file_path) {
@@ -133,7 +145,7 @@ int main(int argc, char *argv[])
         std::vector<unsigned char> payload = read_file_bytes(full_path);
 
         // Prepend the header to our buffer
-        std::string header = "blob " + std::to_string(payload.size()) + "\0";
+        std::string header = "blob " + std::to_string(payload.size()) + '\0';
 
         std::vector<unsigned char> blob_object;
         blob_object.insert(blob_object.end(), header.begin(), header.end());
@@ -158,15 +170,17 @@ int main(int argc, char *argv[])
             
             // Create the directory and the file
             fs::create_directories(obj_dir);
+            
+            std::string compressed = zlib_compress(blob_object.data(), blob_object.size());
 
             fs::path tmp = obj_dir / (file_name + ".tmp");
 
             {
-                zstr::ofstream out(tmp.string(), std::ios_base::binary);
+                std::ofstream out(tmp.string(), std::ios_base::binary);
                 if(!out) throw std::runtime_error("cannot open tmp object for write");
 
-                out.write(reinterpret_cast<const char*>(blob_object.data()),
-                          static_cast<std::streamsize>(blob_object.size()));
+                out.write(compressed.data(), compressed.size());
+
                 if (!out) throw std::runtime_error("write failed");
                 out.close();
             }
