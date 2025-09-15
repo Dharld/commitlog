@@ -151,10 +151,10 @@ int main(int argc, char *argv[])
             std::string dir_name = sha1_str.substr(0, 2);
             std::string file_name = sha1_str.substr(2);
 
-            fs::path obj_dir = "./git/objects" / fs::path(dir_name);
+            fs::path obj_dir = ".git/objects" / fs::path(dir_name);
             fs::path obj_path = obj_dir / file_name;
 
-            fs::create_directory(obj_dir);
+            fs::create_directories(obj_dir);
 
             if(!fs::exists(obj_path)) {
                 fs::path tmp = obj_dir / (file_name + ".tmp");
