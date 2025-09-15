@@ -4,6 +4,7 @@
 #include <iostream>
 #include <filesystem>
 #include <fstream>
+#include <iterator>
 #include <ostream>
 #include <sstream>
 #include <string>
@@ -124,6 +125,7 @@ int main(int argc, char *argv[])
             else cmd.file_name = arg;
         }
 
+
         // Construct the absolute path
         fs::path current_dir = fs::current_path();
         fs::path full_path = current_dir / fs::relative(cmd.file_name);
@@ -153,22 +155,24 @@ int main(int argc, char *argv[])
 
             fs::path obj_dir = ".git/objects" / fs::path(dir_name);
             fs::path obj_path = obj_dir / file_name;
-
+            
+            // Create the directory and the file
             fs::create_directories(obj_dir);
 
-            if(!fs::exists(obj_path)) {
-                fs::path tmp = obj_dir / (file_name + ".tmp");
+            fs::path tmp = obj_dir / (file_name + ".tmp");
 
-                {
-                    zstr::ofstream out(tmp.string(), std::ios::binary);
-                    if(!out) throw std::runtime_error("cannot open tmp object for write");
+            {
+                zstr::ofstream out(tmp.string(), std::ios_base::binary);
+                if(!out) throw std::runtime_error("cannot open tmp object for write");
 
-                    out.write(reinterpret_cast<char*>(blob_object.data()), blob_object.size());
-                    if(!out) throw std::runtime_error("cannot write blob object to destination");
-                }
-
-                fs::rename(tmp, obj_path);
+                out.write(reinterpret_cast<const char*>(blob_object.data()),
+                          static_cast<std::streamsize>(blob_object.size()));
+                if (!out) throw std::runtime_error("write failed");
+                out.close();
             }
+
+            fs::rename(tmp, obj_path);
+
         };
     }
     else {
