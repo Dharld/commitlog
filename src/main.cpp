@@ -68,8 +68,9 @@ int main(int argc, char *argv[])
             std::ostringstream ss;
             ss << input.rdbuf();
             std::string input_content = ss.str();
+            input.close();
 
-            std::string payload = input_content.substr(input_content.find("\0") + 1);
+            std::string payload = input_content.substr(input_content.find('\0') + 1);
             std::cout << payload << std::flush;
        }
     }
