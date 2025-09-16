@@ -7,13 +7,14 @@
 #include <ostream>
 #include <sstream>
 #include <string>
+#include <string_view>
 #include <vector>
 #include <openssl/sha.h>
 #include <zlib.h>
-#include "lib/command.h"
+#include "lib/command.hpp"
 #include "lib/zstr.hpp"
+#include "lib/entry.hpp"
 
-using std::cout;
 namespace fs = std::filesystem;
 
 std::string get_sha1_str(unsigned char* digest) {
@@ -26,7 +27,7 @@ std::string get_sha1_str(unsigned char* digest) {
 }
 
 static std::string zlib_compress(const unsigned char* data, size_t len, int level = Z_DEFAULT_COMPRESSION) {
-    uLongf cap = compressBound(len);        // upper bound for compressed size
+    auto cap = compressBound(len);        // upper bound for compressed size
     std::string out;
     out.resize(cap);
 
@@ -111,7 +112,7 @@ int main(int argc, char *argv[])
             std::string sha1 = cmd.object_id.substr(2);
             
             // Decompress the file
-            std::string path = ".git/objects/" + dir_name + "/" + sha1;
+            fs::path path = ".git/objects/" + dir_name + "/" + sha1;
 
             zstr::ifstream input(path);
             if(!input.is_open()) {
@@ -188,6 +189,66 @@ int main(int argc, char *argv[])
             fs::rename(tmp, obj_path);
 
         };
+    }
+    else if(command == "ls-tree") {
+        LSTreeCommand cmd;
+        
+        for (int i = 0; i < argc; ++i) {
+            std::string arg = argv[i];
+
+            if (arg == "-r") cmd.print_recursive = true;
+            if (arg == "--name-only") cmd.print_name_only = true;
+            else cmd.object_id = arg;
+        }
+
+
+        // read dir/filename
+        std::string obj_dir = cmd.object_id.substr(0, 2);
+        std::string obj_name = cmd.object_id.substr(2);
+
+        fs::path root_dir = fs::absolute(".git/objects");
+        fs::path full_path = root_dir / obj_dir / obj_name;
+        
+        // Inflate Object
+        zstr::ifstream input(full_path, std::ios::binary);
+
+        if (!input) {
+            std::cerr << "Impossible to open the file at: " << full_path << std::endl;
+            throw EXIT_FAILURE;
+        }
+        
+        // Skip the header;
+        char ch;
+        std::string header;
+        while (input.get(ch)) {
+            if (ch == '\0') break;
+            header.push_back(ch);
+        }
+        
+        if (header.find("tree") != 0) {
+            std::cerr << "The sha1 provided is not associated to a valid tree" << std::endl;
+            throw EXIT_FAILURE;
+        }
+
+        // Parse the entries
+        std::vector<char> buffer{
+            std::istreambuf_iterator<char>(input), 
+            std::istreambuf_iterator<char>()
+        };
+
+        std::string_view payload{buffer.data(), buffer.size()};
+
+        EntryParser parser{payload};
+        std::vector<Entry> entries = parser.parse_all();
+        
+        for(auto e: entries) {
+            if (cmd.print_name_only) {
+                std::cout << e.name << std::endl; 
+            } else {
+                std::cout << e.mode << " " << e.get_type() 
+                          << " " << e.oid.to_hex() << " " << e.name << std::endl;
+            }
+        }
     }
     else {
         std::cerr << "Unknown command " << command << '\n';
