@@ -1,48 +1,59 @@
+#include "lib/commands.hpp"
+#include "lib/object_store.hpp"
 #include <cstdlib>
 #include <filesystem>
-#include <ios>
 #include <iostream>
-#include <ostream>
-
-#include "lib/commands.hpp"
-#include "lib/entry.hpp"
-#include "lib/i_object_codec.hpp"
-#include "lib/object_store.hpp"
-
-#include <openssl/sha.h>
-#include <zlib.h>
 
 namespace fs = std::filesystem;
 
+// Return the REPO ROOT (parent of .git), stop at filesystem root.
 fs::path find_repo_root(fs::path start = fs::current_path()) {
   auto dir = start;
   while (true) {
-    if (fs::exists(dir / ".git")) {
-      return dir / ".git";
-    }
-
-    if (dir.has_parent_path()) {
-      dir = dir.parent_path();
-    } else {
-      throw std::runtime_error("Not a git repository (or any parent up to /)");
-    }
+    if (fs::exists(dir / ".git") && fs::is_directory(dir / ".git"))
+      return dir; // <-- repo root
+    auto parent = dir.parent_path();
+    if (parent == dir)
+      break; // <-- stop at '/'
+    dir = parent;
   }
+  throw std::runtime_error("Not a git repository");
 }
 
 int main(int argc, char *argv[]) {
-  // Flush after every std::cout / std::cerr
   std::cout << std::unitbuf;
   std::cerr << std::unitbuf;
 
-  auto git_dir = find_repo_root();
-  ObjectStore store{make_zlib_codec(), git_dir / "objects"};
-
-  auto cmd = make_command(argv[1]);
-
+  if (argc < 2) {
+    std::cerr << "usage: git <command> [args...]\n";
+    return EXIT_FAILURE;
+  }
+  std::string cmd_name = argv[1];
+  auto cmd = make_command(cmd_name);
   if (!cmd) {
-    std::cerr << "Unknown command: " << argv[1] << "\n";
+    std::cerr << "Unknown command: " << cmd_name << "\n";
     return EXIT_FAILURE;
   }
 
+  // Build codec for the store
+  auto codec = make_zlib_codec();
+
+  // Special-case init: don't try to discover a repo before it exists.
+  if (cmd_name == "init") {
+    fs::path objects =
+        fs::current_path() / ".git" / "objects";  // may not exist yet
+    ObjectStore store{std::move(codec), objects}; // ctor should be lazy
+    return cmd->execute(argc, argv, store);
+  }
+
+  // All other commands require an existing repo
+  fs::path repo_root;
+  try {
+    repo_root = find_repo_root();
+  } catch (const std::exception &e) {
+    std::cerr << e.what() << "\n";
+    return EXIT_FAILURE;
+  }
+  ObjectStore store{std::move(codec), repo_root / ".git" / "objects"};
   return cmd->execute(argc, argv, store);
 }

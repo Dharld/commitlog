@@ -174,4 +174,7 @@ bool ObjectStore::has_object(const Oid& oid) const {
     return std::filesystem::exists(file);
 }
 
+const fs::path& ObjectStore::objects_root() const {
+  return root_;
+}
 

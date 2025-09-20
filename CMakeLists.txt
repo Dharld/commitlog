@@ -16,6 +16,7 @@ target_sources(git PRIVATE
     src/lib/entry.cpp
     src/lib/object_store.cpp
     src/lib/zlib_codec.cpp
+    src/lib/index.cpp
 )
 
 # Set C++ standard and options on the target

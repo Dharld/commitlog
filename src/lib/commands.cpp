@@ -1,4 +1,5 @@
 // commands.cpp
+#include <cstdio>
 #include <cstdlib>
 #include <memory>
 #include <string>
@@ -14,6 +15,7 @@
 #include "commands.hpp"
 #include "object_store.hpp"
 #include "entry.hpp"
+#include "index.hpp"
 
 namespace fs = std::filesystem;
 struct ICommand;
@@ -43,10 +45,33 @@ static std::string sha1_hex(std::string_view bytes) {
     return out;
 }
 
+
+
+std::string detect_mode(const fs::path& p){
+    std::error_code ec;
+    auto perms = fs::status(p, ec).permissions();
+    if (ec) throw std::runtime_error("stat failed: " + p.string());
+    bool exec =
+        (perms & fs::perms::owner_exec) != fs::perms::none ||
+        (perms & fs::perms::group_exec) != fs::perms::none ||
+        (perms & fs::perms::others_exec) != fs::perms::none;
+    return exec ? "100755" : "100644";
+};
+
+std::string slurp(fs::path p) {
+  std::ifstream in(p, std::ios::binary);
+  if (!in) throw std::runtime_error("open failed: " + p.string());
+  return std::string(
+    std::istreambuf_iterator<char>(in), 
+    std::istreambuf_iterator<char>()
+  ); 
+}
+
+
 // ------------------------------ init -------------------------------------
 
 struct InitCommand : ICommand {
-  const char* name() const override { return "init"; }
+  const char* name () const override { return "init"; }
   int execute(int /*argc*/, char** /*argv*/, ObjectStore& /*store*/) override {
     try {
       fs::create_directory(".git");
@@ -226,6 +251,61 @@ struct WriteTreeCommand : ICommand {
   }
 };
 
+
+// ------------------------------ add --------------------------------------
+struct AddCommand : ICommand {
+  const char* name() const override { return "add"; }
+  int execute(int argc, char** argv, ObjectStore& store) override {
+    if (argc < 3) {
+      std::cerr << "Usage: add <path>\n";
+      return EXIT_FAILURE;
+    }
+
+    std::string file_name = argv[2];
+    const fs::path& objects = store.objects_root();
+    fs::path repo_root = objects.parent_path().parent_path();
+
+    fs::path index_path = repo_root / ".git" / "index";
+
+    Index index(index_path);
+    index.load();
+
+    // Get the absolute path
+    fs::path abs = fs::absolute(file_name);
+    if (!fs::exists(abs) || !fs::is_regular_file(abs)) {
+      std::cerr << "add: not a regular file: " << abs << "\n";
+      return EXIT_FAILURE;
+    }
+    
+    fs::path rel = fs::relative(abs, repo_root).generic_string();
+    if (rel.string().rfind(".git/", 0) == 0) {
+      std::cerr << "add: refusing to stage inside .git/: " << rel << "\n";
+      return EXIT_FAILURE;
+    }
+    
+    // Mode detection: exec bit => 100755, else 100644
+    std::string mode = detect_mode(abs);
+    std::string data = slurp(abs);
+
+    std::string object_bytes;
+    {
+        std::string header = "blob " + std::to_string(data.size()) + '\0';
+        object_bytes.reserve(header.size() + data.size());
+        object_bytes.append(header);
+        object_bytes.append(data);
+    }
+
+    // Store blob in object store; get OID
+    auto put = store.put_object_if_absent(object_bytes);
+    const Oid& oid = put.oid;
+
+    // Update index and persist
+    index.upsert(IndexEntry{rel, mode, oid});
+    index.flush();
+    return EXIT_SUCCESS;
+  }
+};
+
 // ------------------------------- Factory ---------------------------------
 
 static std::unique_ptr<ICommand> make_cmd(const std::string& name) {
@@ -234,6 +314,7 @@ static std::unique_ptr<ICommand> make_cmd(const std::string& name) {
   if (name == "hash-object") return std::make_unique<HashObjectCommand>();
   if (name == "ls-tree")     return std::make_unique<LsTreeCommand>();
   if (name == "write-tree")  return std::make_unique<WriteTreeCommand>();
+  if (name == "add") return std::make_unique<AddCommand>();
   return nullptr;
 }
 

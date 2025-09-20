@@ -14,6 +14,7 @@
 #include <vector>
 #include <zlib.h>
 
+namespace fs = std::filesystem;
 
 struct Oid {
     unsigned char bytes[SHA_DIGEST_LENGTH];
@@ -80,24 +81,25 @@ struct ParsedHeader {
 class ObjectStore {
 public:
     explicit ObjectStore(std::unique_ptr<IObjectCodec> codec,
-                         std::filesystem::path repo_root)
+                         fs::path repo_root)
         : codec_(std::move(codec)), root_(std::move(repo_root)) {}
     
     PutObjectResult put_object_if_absent(std::string_view);
     std::optional<ReadObjectResult> read_object(const Oid&) const;
-
+  
     // Existence check
     bool has_object(const Oid&) const; 
 
     // Get all the objects within ./git/objects
     std::vector<Oid> get_all_objects() const;
-    static ParsedHeader parse_header(std::string_view);
+    const fs::path& objects_root() const;
 
+    static ParsedHeader parse_header(std::string_view);
     static Oid compute_oid(std::string_view);
 private:
-    std::filesystem::path loose_path_for(const Oid& oid) const;
-    std::filesystem::path objects_dir_for(const Oid& oid) const;
-    
+    fs::path loose_path_for(const Oid& oid) const;
+    fs::path objects_dir_for(const Oid& oid) const;
+      
     std::unique_ptr<IObjectCodec> codec_;
-    std::filesystem::path root_;
+    fs::path root_;
 };
