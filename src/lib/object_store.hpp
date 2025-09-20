@@ -1,6 +1,11 @@
+#pragma once
+
+#include "i_object_codec.hpp"
+
 #include <cstddef>
 #include <filesystem>
 #include <iomanip>
+#include <memory>
 #include <openssl/sha.h>
 #include <optional>
 #include <sstream>
@@ -8,7 +13,6 @@
 #include <string_view>
 #include <vector>
 #include <zlib.h>
-
 
 
 struct Oid {
@@ -19,9 +23,9 @@ struct Oid {
 
     std::string to_hex() const {
         std::ostringstream ss;
-
+        ss << std::hex << std::setfill('0');
         for (int i = 0; i < SHA_DIGEST_LENGTH; i++) {
-            ss << std::hex << std::setw(2) << std::setfill('0') << bytes[i]; 
+            ss << std::setw(2) << static_cast<int>(bytes[i] & 0xff); 
         }
 
         return ss.str();
@@ -75,7 +79,10 @@ struct ParsedHeader {
 
 class ObjectStore {
 public:
-    explicit ObjectStore(std::filesystem::path repo_root);
+    explicit ObjectStore(std::unique_ptr<IObjectCodec> codec,
+                         std::filesystem::path repo_root)
+        : codec_(std::move(codec)), root_(std::move(repo_root)) {}
+    
     PutObjectResult put_object_if_absent(std::string_view);
     std::optional<ReadObjectResult> read_object(const Oid&) const;
 
@@ -85,11 +92,12 @@ public:
     // Get all the objects within ./git/objects
     std::vector<Oid> get_all_objects() const;
     static ParsedHeader parse_header(std::string_view);
-private:
-    static Oid compute_oid(std::string_view);
 
+    static Oid compute_oid(std::string_view);
+private:
     std::filesystem::path loose_path_for(const Oid& oid) const;
     std::filesystem::path objects_dir_for(const Oid& oid) const;
-
+    
+    std::unique_ptr<IObjectCodec> codec_;
     std::filesystem::path root_;
 };

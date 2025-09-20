@@ -1,25 +1,8 @@
-#include <iomanip>
-#include <ios>
+#include "object_store.hpp"
 #include <openssl/sha.h>
-#include <sstream>
 #include <string>
 #include <string_view>
 #include <vector>
-
-struct Oid {
-    unsigned char bytes[20];
-    
-    std::string to_hex() const {
-        std::ostringstream ss;
-
-        for (int i = 0; i < SHA_DIGEST_LENGTH; i++) {
-            ss << std::hex << std::setw(2) << std::setfill('0')
-               << bytes[i];
-        }
-
-        return ss.str();
-    }
-};
 
 struct Entry {
     std::string mode;

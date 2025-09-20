@@ -1,4 +1,5 @@
 #include "object_store.hpp"
+
 #include "zstr.hpp"
 #include <filesystem>
 #include <fstream>
@@ -29,9 +30,6 @@ Oid ObjectStore::compute_oid(std::string_view object_bytes) {
 
     return oid;
 }
-
-// constructors
-ObjectStore::ObjectStore(std::filesystem::path root): root_(root) {}
 
 // Private methods
 std::filesystem::path ObjectStore::loose_path_for(const Oid& oid) const {
@@ -99,8 +97,9 @@ PutObjectResult ObjectStore::put_object_if_absent(std::string_view object_bytes)
     std::string compressed = zlib_compress(
             reinterpret_cast<const unsigned char*>(object_bytes.data()), 
             object_bytes.size());
-    std::filesystem::path tmp = file / ".tmp";
- 
+    std::filesystem::path tmp = file;
+    tmp += ".tmp";
+
     {
         std::ofstream out(tmp, std::ios_base::binary);
         if(!out) throw std::runtime_error("cannot open tmp object for write");

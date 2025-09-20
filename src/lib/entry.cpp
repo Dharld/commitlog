@@ -1,45 +1,52 @@
+#include <algorithm>
+#include <cstddef>
+#include <cstring>
+#include <openssl/sha.h>
+#include <string_view>
 #include <vector>
 #include "entry.hpp"
 
 bool EntryParser::next(Entry& out) {
-    if (!ok_) return false;                 // sticky error
-    if (pos_ >= payload_.size()) return false; // no more entries
-
-    // 1) mode: ASCII until ' '
+    if(!ok_) return false; // sticky
+    if(pos_ >= payload_.size()) return false; // passed the limit
+    
+    // Parse the mode
     const std::size_t mode_begin = pos_;
-    const std::size_t sp = payload_.find(' ', mode_begin);
+    const std::size_t sp = payload_.find(" ", mode_begin);
+
     if (sp == std::string_view::npos || sp == mode_begin) {
-        ok_ = false; err_ = "corrupt tree: missing or empty mode";
+        ok_ = false;
+        err_ = "Missing or corrupted mode";
         return false;
     }
-    out.mode.assign(payload_.substr(mode_begin, sp - mode_begin));
 
-    // 2) name: bytes until '\0'
-    const std::size_t name_begin = sp + 1;
-    if (name_begin >= payload_.size()) {
-        ok_ = false; err_ = "corrupt tree: missing name";
-        return false;
-    }
-    const std::size_t nul = payload_.find('\0', name_begin);
+    out.mode.assign(payload_, mode_begin, sp - mode_begin);
+    
+    // Parse the name
+    const std::size_t name_begin =sp + 1;
+    const std::size_t nul = payload_.find('\0', mode_begin);
+
     if (nul == std::string_view::npos) {
-        ok_ = false; err_ = "corrupt tree: missing NUL before OID";
+        ok_ = false;
+        err_ = "Missing or corrupted name";
         return false;
     }
-    out.name.assign(payload_.substr(name_begin, nul - name_begin));
 
-    // 3) 20 raw bytes of OID follow the NUL
-    const std::size_t oid_begin = nul + 1;
-    constexpr std::size_t OID_LEN = 20;
-    if (payload_.size() - oid_begin < OID_LEN) {
-        ok_ = false; err_ = "corrupt tree: truncated OID";
+    out.name.assign(payload_, name_begin, nul - name_begin);
+
+    // Parse the 20 bits Oid
+    const size_t oid_begin = nul + 1;
+    const size_t oid_length = SHA_DIGEST_LENGTH;
+
+    if (oid_begin + oid_length >= payload_.size()) {
+        ok_ = false;
+        err_ = "Corrupted Oid";
         return false;
     }
-    // copy raw bytes into Oid
-    const unsigned char* src = reinterpret_cast<const unsigned char*>(payload_.data() + oid_begin);
-    std::copy(src, src + OID_LEN, out.oid.bytes);
-
-    // 4) advance cursor
-    pos_ = oid_begin + OID_LEN;
+    
+    const unsigned char* ptr_ = reinterpret_cast<const unsigned char*>(payload_.data() + oid_begin);
+    std::copy(ptr_, ptr_ + oid_length, out.oid.bytes);
+    pos_ = oid_begin + oid_length;
     return true;
 }
 
