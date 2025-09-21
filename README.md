@@ -1,59 +1,86 @@
-[![progress-banner](https://backend.codecrafters.io/progress/git/4ccfe86f-955f-4903-867a-7452555928b9)](https://app.codecrafters.io/users/codecrafters-bot?r=2qF)
-
-This is a starting point for C++ solutions to the
-["Build Your Own Git" Challenge](https://codecrafters.io/challenges/git).
-
-In this challenge, you'll build a small Git implementation that's capable of
-initializing a repository, creating commits and cloning a public repository.
-Along the way we'll learn about the `.git` directory, Git objects (blobs,
-commits, trees etc.), Git's transfer protocols and more.
-
-**Note**: If you're viewing this repo on GitHub, head over to
-[codecrafters.io](https://codecrafters.io) to try the challenge.
-
-# Passing the first stage
-
-The entry point for your Git implementation is in `src/main.cpp`. Study and
-uncomment the relevant code, and push your changes to pass the first stage:
-
-```sh
-git commit -am "pass 1st stage" # any msg
-git push origin master
-```
-
-That's all!
-
-# Stage 2 & beyond
-
-Note: This section is for stages 2 and beyond.
-
-1. Ensure you have `cmake` installed locally
-1. Run `./your_program.sh` to run your Git implementation, which is implemented
-   in `src/main.cpp`.
-1. Commit your changes and run `git push origin master` to submit your solution
-   to CodeCrafters. Test output will be streamed to your terminal.
-
-# Testing locally
-
-The `your_program.sh` script is expected to operate on the `.git` folder inside
-the current working directory. If you're running this inside the root of this
-repository, you might end up accidentally damaging your repository's `.git`
-folder.
-
-We suggest executing `your_program.sh` in a different folder when testing
-locally. For example:
-
-```sh
-mkdir -p /tmp/testing && cd /tmp/testing
-/path/to/your/repo/your_program.sh init
-```
-
-To make this easier to type out, you could add a
-[shell alias](https://shapeshed.com/unix-alias/):
-
-```sh
-alias mygit=/path/to/your/repo/your_program.sh
-
-mkdir -p /tmp/testing && cd /tmp/testing
-mygit init
-```
+# commitlog (C++) — tiny Git plumbing 
+ 
+A compact Git re-implementation in modern C++17. It stores loose objects, keeps a simple on-disk staging area (index), and exposes a handful of plumbing commands. Great for learning Git internals without the kitchen sink. 
+ 
+## Build 
+ 
+Requirements: CMake, a C++17 compiler, zlib, OpenSSL (SHA-1). 
+ 
+```bash 
+cmake -S . -B build 
+cmake --build build -j 
+# binary: build/git 
+``` 
+ 
+## Quick start 
+ 
+```bash 
+# 1) Create a sandbox repo 
+mkdir -p /tmp/toy_repo && cd /tmp/toy_repo 
+/path/to/build/git init 
+ 
+# 2) Stage a file 
+echo "hello" > README.md 
+/path/to/build/git add README.md 
+cat .git/index 
+# 100644 <40-hex-oid> README.md 
+ 
+# 3) Hash & inspect objects 
+oid=$(/path/to/build/git hash-object -w README.md) 
+/path/to/build/git cat-file -t "$oid"  # -> blob 
+/path/to/build/git cat-file -p "$oid"  # -> prints file bytes (binary-safe) 
+``` 
+ 
+## What’s implemented 
+ 
+### Loose object storage 
+ 
+* Layout: `.git/objects/aa/bbbbbbbbbbbbbbbbbbbbbbbb` 
+* Each object is stored **compressed** (zlib). 
+* OID (SHA-1) is computed over the **uncompressed** bytes: 
+  `"type <size>\0" + <payload>`. 
+ 
+### Staging area (index) 
+ 
+* On disk: `.git/index` (text v1), one entry per line: 
+ 
+  ``` 
+  <mode> <40-hex-oid> <repo-root-relative-path> 
+  ``` 
+* In memory: `std::map<std::string, IndexEntry>` for deterministic order and fast upserts. 
+* Atomic saves: write to `.git/index.tmp`, then `rename` → `.git/index`. 
+ 
+### Commands 
+ 
+* `init` — create `.git/` (objects, refs, HEAD → `refs/heads/main`) 
+* `hash-object [-w] <path>` — print blob OID; with `-w` also store it 
+* `cat-file (-p|-t) <oid>` — print payload (`-p`, binary-safe) or type (`-t`) 
+* `ls-tree [--name-only] <tree-oid>` — list entries of a tree (parser included) 
+* `add <path>` — stage **one file** (MVP): computes mode + blob OID and writes index 
+ 
+## Design notes (concise) 
+ 
+* **Paths in index** are **relative to the repository root** (the parent of `.git`) and use **forward slashes**. 
+* **Modes**: executable bit → `100755`; otherwise `100644`. (Symlink `120000` planned.) 
+* **Blobs vs trees**: blobs store only bytes; names & modes live in tree entries: 
+  `"<mode> <name>\0<20 raw oid bytes>"`. 
+* **Atomicity**: index and refs use “write to `.tmp` then `rename`” to avoid partial writes. 
+ 
+## Limitations / Next steps 
+ 
+* `add` handles a single file (no dir recursion yet). 
+* `write-tree` (build trees from index) — **next** 
+* `commit` (create commit object, update `refs/heads/<branch>`) — **next** 
+* Symlink support (`120000`) and Windows exec-bit nuance — later 
+* More robust repo discovery in commands (main already does discovery) 
+ 
+## Troubleshooting 
+ 
+* **Paths like `../file` in index** → you computed relative to `.git`. Use the **repo root** for `relative(abs, repo_root)`. 
+* **“cannot open index temp file: .git/.git/index.tmp”** → you concatenated `.git` twice. 
+* **`cat-file -p` shows gibberish** → that OID may be a **tree** (contains NULs). Use `-t` to check type. 
+ 
+--- 
+ 
+**Why this project?** 
+It’s a clean, minimal path through Git’s core idea: **content-addressed storage**. Identical content → identical OID, so re-adding unchanged files is essentially free (index update only). ``
